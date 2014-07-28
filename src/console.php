@@ -7,7 +7,9 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
 
 $console = new Application('My Silex Application', 'n/a');
-$console->getDefinition()->addOption(new InputOption('--env', '-e', InputOption::VALUE_REQUIRED, 'The Environment name.', 'dev'));
+$console->getDefinition()->addOption(
+    new InputOption('--env', '-e', InputOption::VALUE_REQUIRED, 'The Environment name.', 'dev')
+);
 $console->setDispatcher($app['dispatcher']);
 $console
     ->register('my-command')
@@ -17,7 +19,13 @@ $console
     ->setDescription('My command description')
     ->setCode(function (InputInterface $input, OutputInterface $output) use ($app) {
         // do something
-    })
-;
+    });
+
+$console
+    ->register('xero')
+    ->setDefinition()
+    ->setDescription('Connect to BitPay and update/add payments in xero')
+    ->setCode(function (InputInterface $input, OutputInterface $output) use ($app) {
+    });
 
 return $console;
