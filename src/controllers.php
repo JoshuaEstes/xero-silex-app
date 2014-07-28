@@ -19,21 +19,76 @@ $app->get('/', function () use ($app) {
  *
  * @see http://developer.xero.com/documentation/api-guides/payment-services-integration-with-xero
  */
-$app->get('/xero/invoice', function () use ($app) {
-    $invoiceNumber = null;
-    $currency      = null;
-    $amountDue     = null;
-    $shortCode     = null;
+$app->get('/xero/invoice', function (Request $request) use ($app) {
+    $invoiceNumber = $request->query->get('invoiceNumber');
+    $currency      = $request->query->get('currency');
+    $amountDue     = $request->query->get('amountDue');
+    $shortCode     = $request->query->get('shortCode');
+    $data          = null;
+
+    //die(var_dump($request->query->all()));
+
     /**
      * Validate the request using the shortcode and the organisation ShortCodes
      * match up.
      * Pull the invoice by invoiceNumber and amountDue from zero to validate
      * Request
      */
+    $config = array(
+        'consumer_key'     => $app['xero.consumer_key'],
+        'shared_secret'    => $app['xero.access_token'],
+        'core_version'     => '2.0',
+        'payroll_version'  => '1.0',
+        'rsa_private_key'  => __DIR__ . '/../config/certs/privatekey.pem',
+        'rsa_public_key'   => __DIR__ . '/../config/certs/publickey.cer',
+        'application_type' => 'Private',
+        'oauth_callback'   => 'oob',
+        'user_agent'       => 'Private Xero App',
+    );
+
+    require_once __DIR__ . '/vendor/xero/lib/XeroOAuth.php';
+
+    $client       = new XeroOAuth($config);
+    $initialCheck = $client->diagnostics();
+    $numErrors    = count($initialCheck);
+
+    if ($numErrors > 0) {
+        foreach ($initialCheck as $error) {
+            $data .= '<pre>' . $error . '</pre>' . PHP_EOL;
+        }
+
+        return new Response($data);
+    }
+
+    $client->config['access_token'] = $app['xero.consumer_key'];
+    $client->config['access_token_secret'] = $app['xero.access_token'];
+
+    $response = $client
+        ->request(
+            'GET',
+            $client->url('Organisation', 'core'),
+            array('where' => sprintf('ShortCode=%s', $shortCode))
+        );
+
+    // Valid Organisation
+    $organisation = $client->parseResponse($response['response'], $response['format'])->Organisations[0]->Organisation;
+
+    //die(var_dump($organisation->Name));
+
+    $response = $client
+        ->request(
+            'GET',
+            $client->url('Invoices/' . $invoiceNumber, 'core'),
+            array()
+        );
+
+    $invoice = $client->parseResponse($response['response'], $response['format']);
 
     /**
      * Create the BitPay invoice
      */
+    require_once __DIR__ . '/vendor/bitpay/api-rest-client-alpha.php';
+    $bitpay = new BitPay();
 
     /**
      * Use the invoice URL and redirect the customer to the bitpay invoice URL

@@ -8,8 +8,8 @@ $app['twig.options'] = array('cache' => __DIR__.'/../var/cache/twig');
 /**
  * Xero Configuration
  */
-$app['xero.consumer_key'] = 'MJRMYWE1ODIWMMEZNGRKMGI5MDG0ZD';
-$app['xero.access_token'] = 'V41GRVMZN0OGIXOHNANNEIYK7APAGD';
+$app['xero.consumer_key'] = 'XSPPQC1T19CTUHBGDR4ZVNRB0CHAN2';
+$app['xero.access_token'] = 'AICJBW8LR6KSEMBQCCDUCVP4BD3PBJ';
 
 /**
  * BitPay Configuration
