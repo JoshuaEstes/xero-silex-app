@@ -87,25 +87,143 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
     /**
      * Create the BitPay invoice
      */
-    require_once __DIR__ . '/vendor/bitpay/api-rest-client-alpha.php';
-    $bitpay = new BitPay();
+    require_once __DIR__ . '/vendor/bitpay-php-client/bp_lib.php';
+    $posData = array(
+        'i' => $invoiceNumber,
+        's' => $shortCode,
+    );
+    $response = bpCreateInvoice(
+        $invoiceNumber,
+        $amountDue,
+        array(
+            'i' => $invoiceNumber,
+            's' => $shortCode,
+        ),
+        array(
+            'orderId'           => $invoiceNumber,
+            'itemDesc'          => '',
+            'itemCode'          => '',
+            'notificationEmail' => '',
+            'notificationURL'   => $app['url_generator']->generate('bitpay-ipn', array(), true),
+            'redirectURL'       => '',
+            'currency'          => $currency,
+            'physical'          => '',
+            'fullNotifications' => '',
+            'transactionSpeed'  => '',
+            'buyerName'         => '',
+            'buyerAddress1'     => '',
+            'buyerAddress2'     => '',
+            'buyerCity'         => '',
+            'buyerState'        => '',
+            'buyerZip'          => '',
+            'buyerEmail'        => '',
+            'buyerPhone'        => '',
+            'apiKey'            => $app['bitpay.api_key'],
+        )
+    );
 
     /**
      * Use the invoice URL and redirect the customer to the bitpay invoice URL
      */
 
-    return new RedirectResponse('http://test.bitpay.com/invoice?id=');
+    $app['monolog']->addDebug(json_encode($response));
+
+    return new RedirectResponse($response['url']);
 });
 
 /**
  * An IPN will be received here which will update the invoice in xero with the
  * correct amounts.
  */
-$app->post('/xero/ipn', function () use ($app) {
+$app->post('/bitpay/ipn', function (Request $request) use ($app) {
     /**
      * Apply payment to invoice
      */
-});
+    $app['monolog']->addDebug((string) $request);
+
+    $content       = json_decode($request->getContent(), true);
+    $posData       = json_decode($content['posData'], true);
+    $invoiceNumber = $posData['posData']['i'];
+    $shortCode     = $posData['posData']['s'];
+
+    $config = array(
+        'consumer_key'     => $app['xero.consumer_key'],
+        'shared_secret'    => $app['xero.access_token'],
+        'core_version'     => '2.0',
+        'payroll_version'  => '1.0',
+        'rsa_private_key'  => __DIR__ . '/../config/certs/privatekey.pem',
+        'rsa_public_key'   => __DIR__ . '/../config/certs/publickey.cer',
+        'application_type' => 'Private',
+        'oauth_callback'   => 'oob',
+        'user_agent'       => 'Private Xero App',
+    );
+
+    require_once __DIR__ . '/vendor/xero/lib/XeroOAuth.php';
+
+    $client       = new XeroOAuth($config);
+    $initialCheck = $client->diagnostics();
+    $numErrors    = count($initialCheck);
+
+    if ($numErrors > 0) {
+        foreach ($initialCheck as $error) {
+            $data .= '<pre>' . $error . '</pre>' . PHP_EOL;
+        }
+
+        return new Response($data);
+    }
+
+    $client->config['access_token'] = $app['xero.consumer_key'];
+    $client->config['access_token_secret'] = $app['xero.access_token'];
+
+    $response = $client
+        ->request(
+            'GET',
+            $client->url('Invoices/' . $invoiceNumber, 'core'),
+            array()
+        );
+
+    $invoice = $client->parseResponse($response['response'], $response['format'])->Invoices[0]->Invoice;
+
+    $tmpl = <<<XML
+<Payments>
+  <Payment>
+    <Invoice>
+      <InvoiceID>%InvoiceID%</InvoiceID>
+      <InvoiceNumber>%InvoiceNumber%</InvoiceNumber>
+    </Invoice>
+    <Account>
+        <AccountID>%AccountID%</AccountID>
+    </Account>
+    <Reference>%Reference%</Reference>
+    <Amount>%Amount%</Amount>
+  </Payment>
+</Payments>
+XML;
+    $xml = strtr(
+        $tmpl,
+        array(
+            '%InvoiceID%'     => $invoice->InvoiceID,
+            '%InvoiceNumber%' => $invoice->InvoiceNumber,
+            '%AccountID%'     => 'CEEF66A5-A545-413B-9312-78A53CAADBC4',
+            '%Reference%'     => $content['id'],
+            '%Amount%'        => $content['price'],
+        )
+    );
+
+    $response = $client
+        ->request(
+            'PUT',
+            $client->url('Payments', 'core'),
+            array(),
+            $xml
+        );
+
+    $payment = $client->parseResponse($response['response'], $response['format'])->Payments[0]->Payment;
+
+    $app['monolog']->addDebug($content);
+
+    return new Response();
+})->bind('bitpay-ipn');
 
 $app->error(function (\Exception $e, $code) use ($app) {
     if ($app['debug']) {

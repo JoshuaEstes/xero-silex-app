@@ -122,6 +122,6 @@ $bpOptions['useLogging'] = false;
  * test.bitpay.com. See: http://blog.bitpay.com/2014/05/13/introducing-the-bitpay-test-environment.html
  * for more information on using testnet.
  */
-$bpOptions['testnet'] = false;
+$bpOptions['testnet'] = true;
 
 ?>
