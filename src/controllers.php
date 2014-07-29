@@ -225,6 +225,10 @@ XML;
     return new Response();
 })->bind('bitpay-ipn');
 
+$app->get('/testing', function () use ($app) {
+    die(var_dump($app));
+});
+
 $app->error(function (\Exception $e, $code) use ($app) {
     if ($app['debug']) {
         return;
