@@ -1,3 +1,8 @@
+# Requirements
+
+* Xero Account
+* BitPay Account
+
 # Installation
 
 ```bash
@@ -9,12 +14,11 @@ vagrant up
 
 # Configuration
 
-See `config/prod.php` for settings.
+See `config/prod.php` for settings. You will also need to configure
+Xero and create a private app.
 
 # Usage
 
 ```bash
-cd web/
-run web server
-vagrant shart
+vagrant share
 ```
