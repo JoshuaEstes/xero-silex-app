@@ -24,7 +24,7 @@ $console
 
 $console
     ->register('generate:keypairs')
-    ->setDefinition()
+    //->setDefinition(array())
     ->setDescription('Generate keypairs for use with xero')
     ->setCode(function (InputInterface $input, OutputInterface $output) use ($app) {
         $certDir = __DIR__ . '/../config/certs';
