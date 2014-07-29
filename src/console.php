@@ -35,6 +35,11 @@ $console
                 $certDir,
                 $certDir
             ),
+            sprintf(
+                'openssl pkcs12 -export -out %s/public_privatekey.pfx -inkey %s/privatekey.pem -in %s/publickey.cer',
+                $certDir,
+                $certDir
+            ),
         );
 
         foreach ($commands as $cmd) {
