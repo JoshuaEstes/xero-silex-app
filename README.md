@@ -30,7 +30,7 @@ If you have not already done so, make sure you have run `vagrant up` and
 * Click on `Invoice Settings`
 * Click on `Payment Services`
 * Click on `Add Payment Service > Custom Payment URL`
-* Put `Bitcoin` for name and `[VagrantShare URL]/xero/invoice?invoiceNo=[INVOICENUMBER]&currency=[CURRENCY]&amount=[AMOUNTDUE]&shortCode=[SHORTCODE]` for custom URL
+* Put `Bitcoin` for name and `[VagrantShare URL]/index.php/xero/invoice?invoiceNumber=[INVOICENUMBER]&currency=[CURRENCY]&amountDue=[AMOUNTDUE]&shortCode=[SHORTCODE]` for custom URL
 * Once added, click the `Edit` link for Bitcoins and select `Invoice Themes`
 * Select all Invoice Themes you want to allow users to pay with Bitcoins
 
