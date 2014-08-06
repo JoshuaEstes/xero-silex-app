@@ -338,7 +338,7 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
         ->request(
             'GET',
             $client->url('Organisations', 'core'),
-            array('where' => sprintf('APIKey=%s', $xeroOrgMuid))
+            array('where' => sprintf('APIKey=%s', $orgApiKey))
         );
     // assume status code 200
 
@@ -373,7 +373,7 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
  * Merchant has connected xero and bitpay, all that is left to do is to
  * configure the application
  */
-$app->post('/xero/setup', function (Request $request) use ($app) {
+$app->get('/xero/setup', function (Request $request) use ($app) {
     return $app['twig']->render(
         'setup.html',
         array()
