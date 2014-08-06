@@ -8,6 +8,9 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 //Request::setTrustedProxies(array('127.0.0.1'));
 
+/**
+ * Homepage that display the connect to xero button
+ */
 $app->get('/', function () use ($app) {
     return $app['twig']->render('index.html', array());
 })
@@ -24,7 +27,13 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
     $currency      = $request->query->get('currency');
     $amountDue     = $request->query->get('amountDue');
     $shortCode     = $request->query->get('shortCode');
-    $data          = null;
+
+    // Find access tokens by short code
+    $accessToken = $app['db']->fetchAssoc(
+        'SELECT bitpay_api_key, token, token_secret FROM access_tokens WHERE org_short_code = ?',
+        array($shortCode)
+    );
+    // IF NOT FOUND, throw an error
 
     /**
      * Validate the request using the shortcode and the organisation ShortCodes
@@ -33,15 +42,15 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
      * Request
      */
     $config = array(
-        'consumer_key'     => $app['xero.consumer_key'],
-        'shared_secret'    => $app['xero.access_token'],
-        'core_version'     => '2.0',
-        'payroll_version'  => '1.0',
-        'rsa_private_key'  => __DIR__ . '/../config/certs/privatekey.pem',
-        'rsa_public_key'   => __DIR__ . '/../config/certs/publickey.cer',
-        'application_type' => 'Private',
-        'oauth_callback'   => 'oob',
-        'user_agent'       => 'Private Xero App',
+        'consumer_key'        => $app['xero.consumer_key'],
+        'shared_secret'       => $app['xero.access_token'],
+        'core_version'        => $app['xero.core_version'],
+        'payroll_version'     => $app['xero.payroll_version'],
+        'application_type'    => $app['xero.application_type'],
+        'user_agent'          => $app['xero.user_agent'],
+        'oauth_callback'      => 'oob', // no callback
+        'access_token'        => $accessToken['token'],
+        'access_token_secret' => $accessToken['token_secret'],
     );
 
     require_once __DIR__ . '/vendor/xero/lib/XeroOAuth.php';
@@ -51,6 +60,7 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
     $numErrors    = count($initialCheck);
 
     if ($numErrors > 0) {
+        $data = null;
         foreach ($initialCheck as $error) {
             $data .= '<pre>' . $error . '</pre>' . PHP_EOL;
         }
@@ -58,25 +68,13 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
         return new Response($data);
     }
 
-    $client->config['access_token']        = $app['xero.consumer_key'];
-    $client->config['access_token_secret'] = $app['xero.access_token'];
-
-    $response = $client
-        ->request(
-            'GET',
-            $client->url('Organisation', 'core'),
-            array('where' => sprintf('ShortCode=%s', $shortCode))
-        );
-
-    // Valid Organisation
-    $organisation = $client->parseResponse($response['response'], $response['format'])->Organisations[0]->Organisation;
-
     $response = $client
         ->request(
             'GET',
             $client->url('Invoices/' . $invoiceNumber, 'core'),
             array()
         );
+    // assume 200 response
 
     $invoice = $client->parseResponse($response['response'], $response['format']);
 
@@ -95,6 +93,7 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
             'i' => $invoiceNumber,
             's' => $shortCode,
         ),
+        // @TODO Enter more information in based on the invoice
         array(
             'orderId'           => $invoiceNumber,
             'itemDesc'          => '',
@@ -114,16 +113,13 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
             'buyerZip'          => '',
             'buyerEmail'        => '',
             'buyerPhone'        => '',
-            'apiKey'            => $app['bitpay.api_key'],
+            'apiKey'            => $token['bitpay_api_key'],
         )
     );
 
     /**
      * Use the invoice URL and redirect the customer to the bitpay invoice URL
      */
-
-    $app['monolog']->addDebug(json_encode($response));
-
     return new RedirectResponse($response['url']);
 });
 
@@ -135,24 +131,26 @@ $app->post('/bitpay/ipn', function (Request $request) use ($app) {
     /**
      * Apply payment to invoice
      */
-    $app['monolog']->addDebug((string) $request);
-
     $content       = json_decode($request->getContent(), true);
-    $app['monolog']->addDebug(print_r($content, true));
     $posData       = json_decode($content['posData'], true);
     $invoiceNumber = $posData['posData']['i'];
     $shortCode     = $posData['posData']['s'];
 
+    $accessToken = $app['db']->fetchAssoc(
+        'SELECT account_id, token, token_secret FROM access_tokens WHERE org_short_code = ?',
+        array($shortCode)
+    );
+
     $config = array(
-        'consumer_key'     => $app['xero.consumer_key'],
-        'shared_secret'    => $app['xero.access_token'],
-        'core_version'     => '2.0',
-        'payroll_version'  => '1.0',
-        'rsa_private_key'  => __DIR__ . '/../config/certs/privatekey.pem',
-        'rsa_public_key'   => __DIR__ . '/../config/certs/publickey.cer',
-        'application_type' => 'Private',
-        'oauth_callback'   => 'oob',
-        'user_agent'       => 'Private Xero App',
+        'consumer_key'        => $app['xero.consumer_key'],
+        'shared_secret'       => $app['xero.access_token'],
+        'core_version'        => $app['xero.core_version'],
+        'payroll_version'     => $app['xero.payroll_version'],
+        'application_type'    => $app['xero.application_type'],
+        'user_agent'          => $app['xero.user_agent'],
+        'oauth_callback'      => 'oob', // no callback
+        'access_token'        => $accessToken['token'],
+        'access_token_secret' => $accessToken['token_secret'],
     );
 
     require_once __DIR__ . '/vendor/xero/lib/XeroOAuth.php';
@@ -169,15 +167,13 @@ $app->post('/bitpay/ipn', function (Request $request) use ($app) {
         return new Response($data);
     }
 
-    $client->config['access_token'] = $app['xero.consumer_key'];
-    $client->config['access_token_secret'] = $app['xero.access_token'];
-
     $response = $client
         ->request(
             'GET',
             $client->url('Invoices/' . $invoiceNumber, 'core'),
             array()
         );
+    // Assume status code 200
 
     $invoice = $client->parseResponse($response['response'], $response['format'])->Invoices[0]->Invoice;
 
@@ -201,13 +197,13 @@ XML;
         array(
             '%InvoiceID%'     => $invoice->InvoiceID,
             '%InvoiceNumber%' => $invoice->InvoiceNumber,
-            '%AccountID%'     => $app['xero.account_id'],
+            '%AccountID%'     => $accessToken['account_id'],
             '%Reference%'     => $content['id'],
             '%Amount%'        => $content['price'],
         )
     );
-    $app['monolog']->addDebug($xml);
 
+    // Apply payment to invoice
     $response = $client
         ->request(
             'PUT',
@@ -215,10 +211,9 @@ XML;
             array(),
             $xml
         );
+    // assume 200 status code
 
     $payment = $client->parseResponse($response['response'], $response['format'])->Payments[0]->Payment;
-    $app['monolog']->addDebug(print_r($payment, true));
-
 
     return new Response();
 })->bind('bitpay-ipn');
@@ -232,13 +227,11 @@ $app->get('/xero/oauth', function (Request $request) use ($app) {
     $config = array(
         'consumer_key'     => $app['xero.consumer_key'],
         'shared_secret'    => $app['xero.consumer_secret'],
-        'core_version'     => '2.0',
-        'payroll_version'  => '1.0',
-        //'rsa_private_key'  => $app['xero.private_key'],
-        //'rsa_public_key'   => $app['xero.public_key'],
-        'application_type' => 'Public',
+        'core_version'     => $app['xero.core_version'],
+        'payroll_version'  => $app['xero.payroll_version'],
+        'application_type' => $app['xero.application_type'],
         'oauth_callback'   => $app['url_generator']->generate('xero-oauth', array(), true),
-        'user_agent'       => 'Xero-OAuth-PHP Public',
+        'user_agent'       => $app['xero.user_agent'],
     );
     require_once __DIR__ . '/vendor/xero/lib/XeroOAuth.php';
 
@@ -258,23 +251,28 @@ $app->get('/xero/oauth', function (Request $request) use ($app) {
         'oauth_callback' => $app['url_generator']->generate('xero-oauth-verifier', array(), true),
     );
     $response = $client->request('GET', $client->url('RequestToken', ''), $params);
-
     // assume 200 status code
-    $parsedResponsed = $client->extract_params($response['response']);
 
-    $oauthToken             = $parsedResponsed['oauth_token'];
-    $oauthTokenSecret       = $parsedResponsed['oauth_token_secret'];
-    $oauthCallbackConfirmed = $parsedResponsed['oauth_callback_confirmed'];
+    $parsedResponse         = $client->extract_params($response['response']);
+    $oauthToken             = $parsedResponse['oauth_token'];
+    $oauthTokenSecret       = $parsedResponse['oauth_token_secret'];
+    //$oauthCallbackConfirmed = $parsedResponse['oauth_callback_confirmed'];
 
+    //$app['db']->insert('access_tokens', array(
+    //    'token'        => $oauthToken,
+    //    'token_secret' => $oauthTokenSecret,
+    //));
+
+    // Insert some information into the session
     $app['session']->set('oauth_token', $oauthToken);
     $app['session']->set('oauth_token_secret', $oauthTokenSecret);
 
     $authorizeUrl = sprintf(
-        '%s?oauth_token=%s&scope=%s',
+        '%s?oauth_token=%s', // scope can be added here
         $client->url('Authorize', ''),
-        $oauthToken,
-        ''
+        $oauthToken
     );
+
     return new RedirectResponse($authorizeUrl);
 })->bind('xero-oauth');
 
@@ -286,16 +284,18 @@ $app->get('/xero/oauth', function (Request $request) use ($app) {
  * for the user.
  */
 $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
+    //$oauthToken    = $request->query->get('oauth_token');
+    //$oauthVerifier = $request->query->get('oauth_verifier');
+    //$org           = $request->query->get('org'); // org API Key
+
     $config = array(
         'consumer_key'     => $app['xero.consumer_key'],
         'shared_secret'    => $app['xero.consumer_secret'],
-        'core_version'     => '2.0',
-        'payroll_version'  => '1.0',
-        //'rsa_private_key'  => $app['xero.private_key'],
-        //'rsa_public_key'   => $app['xero.public_key'],
-        'application_type' => 'Public',
+        'core_version'     => $app['xero.core_version'],
+        'payroll_version'  => $app['xero.payroll_version'],
+        'application_type' => $app['xero.application_type'],
+        'user_agent'       => $app['xero.user_agent'],
         'oauth_callback'   => $app['url_generator']->generate('xero-oauth', array(), true),
-        'user_agent'       => 'Xero-OAuth-PHP Public',
     );
     require_once __DIR__ . '/vendor/xero/lib/XeroOAuth.php';
 
@@ -310,10 +310,8 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
 
         return new Response($data);
     }
-    $oauth_token    = $request->query->get('oauth_token');
-    $oauth_verifier = $request->query->get('oauth_verifier');
-    $org            = $request->query->get('org');
 
+    // Error if session variables are not found
     $client->config['access_token']        = $app['session']->get('oauth_token');
     $client->config['access_token_secret'] = $app['session']->get('oauth_token_secret');
 
@@ -321,25 +319,66 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
         'oauth_verifier' => $request->query->get('oauth_verifier'),
         'oauth_token'    => $request->query->get('oauth_token'),
     ));
-    echo '<pre>';
-    var_dump($code['response']);
-
     // assume 200 status code
 
     $response         = $client->extract_params($code['response']);
     $oauthToken       = $response['oauth_token'];
     $oauthTokenSecret = $response['oauth_token_secret'];
     $oauthExpiresIn   = $response['oauth_expires_in'];
-    $xeroOrgMuid      = $response['xero_org_muid'];
+    $orgApiKey        = $response['xero_org_muid']; // org API Key
+    $date             = new \DateTime();
+    $date->modify(sprintf('+%s seconds', $oauthExpiresIn));
 
-    var_dump($response);
+    // Updates the tokens used to sign requests
+    $client->config['access_token']        = $oauthToken;
+    $client->config['access_token_secret'] = $oauthTokenSecret;
 
-    return $app['twig']->render('setup.html', array(
-    ));
+    // get the short code for the Organisation
+    $response = $client
+        ->request(
+            'GET',
+            $client->url('Organisations', 'core'),
+            array('where' => sprintf('APIKey=%s', $xeroOrgMuid))
+        );
+    // assume status code 200
+
+    $org       = $client->parseResponse($response['response'], $response['format']);
+    $shortCode = $org->Organisations[0]->Organisation->ShortCode;
+    // Error if short code not found?
+
+    // Update database with new access token and access token secret. Need
+    // to use the info in session for this;
+    $app['db']->insert(
+        'access_tokens',
+        array(
+            'org_short_code' => $shortCode,
+            'org_api_key'    => $orgApiKey,
+            'token'          => $oauthToken,
+            'token_secret'   => $oauthTokenSecret,
+            'expires_at'     => $date->format('Y-m-d H:i:s'),
+            'updated_at'     => date('Y-m-d H:i:s'),
+        )
+    );
+
+    // Set some new session variables
+    $app['session']->set('oauth_token', $oauthToken);
+    $app['session']->set('short_code', $shortCode);
+
+    return new RedirectResponse(
+        $app['url_generator']->generate('xero-setup', array(), true)
+    );
 })->bind('xero-oauth-verifier');
 
-$app->post('/xero/oauth/complete', function (Request $request) use ($app) {
-})->bind('xero-oauth-complete');
+/**
+ * Merchant has connected xero and bitpay, all that is left to do is to
+ * configure the application
+ */
+$app->post('/xero/setup', function (Request $request) use ($app) {
+    return $app['twig']->render(
+        'setup.html',
+        array()
+    );
+})->bind('xero-setup');
 
 $app->error(function (\Exception $e, $code) use ($app) {
     if ($app['debug']) {

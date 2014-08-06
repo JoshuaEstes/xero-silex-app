@@ -6,6 +6,9 @@
 # Required packages
 $requiredPackages = [
   'apache2',
+  'mysql-client',
+  'mysql-server',
+  'mysql-common',
 ]
 package { $requiredPackages:
   ensure => latest,
@@ -24,6 +27,8 @@ $notifyApache2Packages = [
   'libapache2-mod-php5',
   'php5-mcrypt',
   'php5-curl',
+  'php5-sqlite',
+  'php5-mysql',
 ]
 package { $notifyApache2Packages:
   ensure => latest,
