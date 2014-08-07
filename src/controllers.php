@@ -466,8 +466,6 @@ $app->match('/xero/setup', function (Request $request) use ($app) {
 
 $app->get('/xero/complete', function (Request $request) use ($app) {
     $app['session']->clear();
-    var_dump($app['session']->all());
-    die();
     return $app['twig']->render('complete.html');
 })->bind('xero-complete');
 
