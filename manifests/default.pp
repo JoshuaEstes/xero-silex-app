@@ -29,6 +29,8 @@ $notifyApache2Packages = [
   'php5-curl',
   'php5-sqlite',
   'php5-mysql',
+  'php5-xdebug',
+  'php5-xmlrpc',
 ]
 package { $notifyApache2Packages:
   ensure => latest,

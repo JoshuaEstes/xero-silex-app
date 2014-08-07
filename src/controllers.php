@@ -43,7 +43,7 @@ $app->get('/xero/invoice', function (Request $request) use ($app) {
      */
     $config = array(
         'consumer_key'        => $app['xero.consumer_key'],
-        'shared_secret'       => $app['xero.access_token'],
+        'shared_secret'       => $app['xero.consumer_secret'],
         'core_version'        => $app['xero.core_version'],
         'payroll_version'     => $app['xero.payroll_version'],
         'application_type'    => $app['xero.application_type'],
@@ -143,7 +143,7 @@ $app->post('/bitpay/ipn', function (Request $request) use ($app) {
 
     $config = array(
         'consumer_key'        => $app['xero.consumer_key'],
-        'shared_secret'       => $app['xero.access_token'],
+        'shared_secret'       => $app['xero.consumer_secret'],
         'core_version'        => $app['xero.core_version'],
         'payroll_version'     => $app['xero.payroll_version'],
         'application_type'    => $app['xero.application_type'],
@@ -322,10 +322,10 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
     // assume 200 status code
 
     $response         = $client->extract_params($code['response']);
-    $oauthToken       = $response['oauth_token'];
-    $oauthTokenSecret = $response['oauth_token_secret'];
-    $oauthExpiresIn   = $response['oauth_expires_in'];
-    $orgApiKey        = $response['xero_org_muid']; // org API Key
+    $oauthToken       = (string) $response['oauth_token'];
+    $oauthTokenSecret = (string) $response['oauth_token_secret'];
+    $oauthExpiresIn   = (string) $response['oauth_expires_in'];
+    $orgApiKey        = (string) $response['xero_org_muid']; // org API Key
     $date             = new \DateTime();
     $date->modify(sprintf('+%s seconds', $oauthExpiresIn));
 
@@ -343,7 +343,7 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
     // assume status code 200
 
     $org       = $client->parseResponse($response['response'], $response['format']);
-    $shortCode = $org->Organisations[0]->Organisation->ShortCode;
+    $shortCode = (string) $org->Organisations[0]->Organisation->ShortCode;
     // Error if short code not found?
 
     // Update database with new access token and access token secret. Need
@@ -362,6 +362,7 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
 
     // Set some new session variables
     $app['session']->set('oauth_token', $oauthToken);
+    $app['session']->set('oauth_token_secret', $oauthTokenSecret);
     $app['session']->set('short_code', $shortCode);
 
     return new RedirectResponse(
@@ -373,12 +374,102 @@ $app->get('/xero/oauth/verifier', function (Request $request) use ($app) {
  * Merchant has connected xero and bitpay, all that is left to do is to
  * configure the application
  */
-$app->get('/xero/setup', function (Request $request) use ($app) {
+$app->match('/xero/setup', function (Request $request) use ($app) {
+    /**
+     * Retreive a list of all accounts in Xero
+     */
+    $config = array(
+        'consumer_key'        => $app['xero.consumer_key'],
+        'shared_secret'       => $app['xero.consumer_secret'],
+        'core_version'        => $app['xero.core_version'],
+        'payroll_version'     => $app['xero.payroll_version'],
+        'application_type'    => $app['xero.application_type'],
+        'user_agent'          => $app['xero.user_agent'],
+        'oauth_callback'      => 'oob', // no callback
+        'access_token'        => $app['session']->get('oauth_token'),
+        'access_token_secret' => $app['session']->get('oauth_token_secret'),
+    );
+
+    require_once __DIR__ . '/vendor/xero/lib/XeroOAuth.php';
+
+    $client       = new XeroOAuth($config);
+    $initialCheck = $client->diagnostics();
+    $numErrors    = count($initialCheck);
+
+    if ($numErrors > 0) {
+        $data = null;
+        foreach ($initialCheck as $error) {
+            $data .= '<pre>' . $error . '</pre>' . PHP_EOL;
+        }
+
+        return new Response($data);
+    }
+
+    $response = $client
+        ->request(
+            'GET',
+            $client->url('Accounts', 'core'),
+            array()
+        );
+    // assume 200 response
+
+    $accounts = $client->parseResponse($response['response'], $response['format'])->Accounts->Account;
+    $options = array();
+    foreach ($accounts as $acct) {
+        $options[(string) $acct->AccountID] = sprintf(
+            '%s%s',
+            isset($acct->Code) ? '(' . (string) $acct->Code . ') - ' : '',
+            $acct->Name
+        );
+    }
+    //----
+
+    $form = $app['form.factory']->createBuilder('form', array())
+        ->add('bitpay_api_key', 'text')
+        ->add('account_id', 'choice', array(
+            'choices' => $options,
+        ))
+        ->add('network', 'choice', array(
+            'choices' => array('livenet' => 'livenet', 'testnet' => 'testnet'),
+        ))
+        ->add('save', 'submit', array('label' => 'Complete Setup'))
+        ->getForm();
+
+    $form->handleRequest($request);
+
+    if ($form->isValid()) {
+        $data = $form->getData();
+        $app['db']->update(
+            'access_tokens',
+            array(
+                'bitpay_api_key' => $data['bitpay_api_key'],
+                'account_id'     => $data['account_id'],
+                'network'        => $data['network'],
+            ),
+            array(
+                'token' => $app['session']->get('oauth_token'),
+            )
+        );
+
+        return new RedirectResponse(
+            $app['url_generator']->generate('xero-complete', array(), true)
+        );
+    }
+
     return $app['twig']->render(
         'setup.html',
-        array()
+        array(
+            'form' => $form->createView(),
+        )
     );
 })->bind('xero-setup');
+
+$app->get('/xero/complete', function (Request $request) use ($app) {
+    $app['session']->clear();
+    var_dump($app['session']->all());
+    die();
+    return $app['twig']->render('complete.html');
+})->bind('xero-complete');
 
 $app->error(function (\Exception $e, $code) use ($app) {
     if ($app['debug']) {
