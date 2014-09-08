@@ -253,9 +253,13 @@ $app->get('/xero/oauth', function (Request $request) use ($app) {
     $response = $client->request('GET', $client->url('RequestToken', ''), $params);
     // assume 200 status code
 
-    $parsedResponse         = $client->extract_params($response['response']);
-    $oauthToken             = $parsedResponse['oauth_token'];
-    $oauthTokenSecret       = $parsedResponse['oauth_token_secret'];
+    $parsedResponse = $client->extract_params($response['response']);
+    if (empty($parsedResponse['oauth_token']) || empty($parsedResponse['oauth_token_secret'])) {
+        die(var_dump($parsedResponse));
+    }
+    $oauthToken       = $parsedResponse['oauth_token'];
+    $oauthTokenSecret = $parsedResponse['oauth_token_secret'];
+
     //$oauthCallbackConfirmed = $parsedResponse['oauth_callback_confirmed'];
 
     //$app['db']->insert('access_tokens', array(

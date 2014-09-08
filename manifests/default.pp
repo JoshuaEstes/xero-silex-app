@@ -56,3 +56,15 @@ file { '/etc/apache2/sites-available/000-default.conf':
   content => "$vhost",
   notify  => Service['apache2'],
 }
+exec { 'enable rewrite':
+  exec    => '/usr/sbin/a2enmod rewrite',
+  creates => '/etc/apache2/mods-enabled/rewite.load',
+  notify  => Service['apache2'],
+}
+
+# MySQL Stuff
+exec { 'create-database':
+  command => '/usr/bin/mysqladmin -u root create xero',
+  unless  => '/usr/bin/mysql -u root xero',
+  require => Package['mysql-server'],
+}
